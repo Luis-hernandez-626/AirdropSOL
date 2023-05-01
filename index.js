@@ -1,3 +1,4 @@
+const express = require('express');
 const {
   Connection,
   PublicKey,
@@ -7,60 +8,69 @@ const {
   Transaction,
   Account,
 } = require("@solana/web3.js");
-
 const bip39 = require('bip39');
 
-//STEP-1 Generating a new wallet keypair
-const mnemonic = bip39.generateMnemonic();
-console.log('Mnemonic:', mnemonic);
+const app = express();
 
-const seed = bip39.mnemonicToSeedSync(mnemonic);
-console.log('Seed:', seed.toString('hex'));
-
-//STEP-2 Deriving a wallet keypair from the seed
-const derivedSeed = seed.slice(0, 32);
-const walletKeyPair = Keypair.fromSeed(derivedSeed);
-console.log('Wallet Key Pair:', walletKeyPair);
-
-//STEP-3 Storing the public and private key
-const publicKey = new PublicKey(walletKeyPair.publicKey).toString();
-const secretKey = walletKeyPair.secretKey;
-
-//STEP-4 Getting the wallet Balance
-const getWalletBalance = async () => {
+const driverFunction = async () => {
   try {
+    //STEP-1 Generating a new wallet keypair
+    const mnemonic = bip39.generateMnemonic();
+    const seed = bip39.mnemonicToSeedSync(mnemonic);
+    const newPair = Keypair.generate();
+    console.log(`New keypair generated for wallet address ${newPair.publicKey.toBase58()}`);
+
+    //STEP-2 Storing the public and private key
+    const publicKey = new PublicKey(newPair.publicKey).toString();
+    const secretKey = newPair.secretKey;
+
+    //STEP-3 Getting the wallet Balance
     const connection = new Connection(clusterApiUrl("devnet"), "confirmed");
     const myWallet = await Keypair.fromSecretKey(secretKey);
     const walletBalance = await connection.getBalance(
       new PublicKey(myWallet.publicKey)
     );
     console.log(`=> For wallet address ${publicKey}`);
-    console.log(`   Wallet balance: ${parseInt(walletBalance)/LAMPORTS_PER_SOL} SOL`);
-  } catch (err) {
-    console.log(err);
-  }
-};
+    console.log(`   Wallet balance: ${parseInt(walletBalance)/LAMPORTS_PER_SOL}SOL`);
 
-//STEP-5 Air dropping SOL (in terms of LAMPORTS)
-const airDropSol = async () => {
-  try {
-    const connection = new Connection(clusterApiUrl("devnet"), "confirmed");
-    const walletKeyPair = await Keypair.fromSecretKey(secretKey);
+    //STEP-4 Air dropping SOL (in terms of LAMPORTS)
     console.log(`-- Airdropping 2 SOL --`)
     const fromAirDropSignature = await connection.requestAirdrop(
-      new PublicKey(walletKeyPair.publicKey),
+      new PublicKey(myWallet.publicKey),
       2 * LAMPORTS_PER_SOL
     );
     await connection.confirmTransaction(fromAirDropSignature);
+
+    //STEP-5 Getting wallet balance after airdrop
+    const walletBalanceAfter = await connection.getBalance(
+      new PublicKey(myWallet.publicKey)
+    );
+    console.log(`   Wallet balance after airdrop: ${parseInt(walletBalanceAfter)/LAMPORTS_PER_SOL}SOL`);
+    
+    return {
+      mnemonic,
+      publicKey,
+      secretKey,
+      walletBalance,
+      walletBalanceAfter
+    };
   } catch (err) {
-    console.log(err);
+    console.error(err);
+    throw err;
   }
 };
 
-//STEP-6 Driver function
-const driverFunction = async () => {
-    await getWalletBalance();
-    await airDropSol();
-    await getWalletBalance();
-}
-driverFunction();
+app.get('/', async (req, res) => {
+  try {
+    const result = await driverFunction();
+    res.send(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Internal Server Error');
+  }
+});
+
+const port = 8080;
+app.listen(port, () => {
+  console.log(`Server is listening on port ${port}`);
+});
